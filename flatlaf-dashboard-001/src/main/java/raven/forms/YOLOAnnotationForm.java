@@ -50,7 +50,7 @@ public class YOLOAnnotationForm extends JPanel {
     
     private void initComponents() {
         setLayout(new BorderLayout());
-        setBackground(Color.DARK_GRAY);
+        setOpaque(false);
         
         // Image viewer
         imageViewer = new ImageViewer(classManager);

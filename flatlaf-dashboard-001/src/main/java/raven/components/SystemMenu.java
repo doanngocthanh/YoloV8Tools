@@ -22,8 +22,11 @@ import raven.swing.blur.style.StyleOverlay;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.geom.Point2D;
+import java.io.File;
 
 public class SystemMenu extends BlurChild {
+
+    private SimpleMenu simpleMenu;
 
     public SystemMenu() {
         super(new Style()
@@ -36,6 +39,13 @@ public class SystemMenu extends BlurChild {
                 .setOverlay(new StyleOverlay(new Color(0, 0, 0), 0.2f))
         );
         init();
+        
+        // Listen for project changes
+        try {
+            raven.yolo.manager.ProjectManager.getInstance().addProjectListener(project -> updateMenuVisibility());
+        } catch (Exception e) {
+            // Project manager might not be available yet
+        }
     }
 
     private void init() {
@@ -59,28 +69,71 @@ public class SystemMenu extends BlurChild {
         header.setOpaque(false);
         add(header);
         add(scrollPane);
-    }    private SimpleHeaderData getHeaderData() {
+    }
+    
+    private void updateMenuVisibility() {
+        SwingUtilities.invokeLater(() -> {
+            // Rebuild menu with updated visibility
+            remove(1); // Remove scroll pane
+            
+            simpleMenu = new SimpleMenu(getMenuOption());
+            simpleMenu.setOpaque(false);
+            
+            JScrollPane scrollPane = new JScrollPane(simpleMenu);
+            scrollPane.setBorder(BorderFactory.createEmptyBorder());
+            scrollPane.setOpaque(false);
+            scrollPane.getViewport().setOpaque(false);
+            scrollPane.getVerticalScrollBar().setOpaque(false);
+            scrollPane.getVerticalScrollBar().setUnitIncrement(10);
+            scrollPane.getVerticalScrollBar().putClientProperty(FlatClientProperties.STYLE, "" +
+                    "trackArc:999;" +
+                    "width:5;" +
+                    "thumbInsets:0,0,0,0");
+            
+            add(scrollPane);
+            revalidate();
+            repaint();
+        });
+    }private SimpleHeaderData getHeaderData() {
         return new SimpleHeaderData()
                 .setTitle("YOLO v8")
                 .setDescription("Annotation Tool")
                 .setIcon(new AvatarIcon(getClass().getResource("/raven/images/profile.png"), 60, 60, 999));
     }    private SimpleMenuOption getMenuOption() {
-        raven.drawer.component.menu.data.MenuItem items[] = new raven.drawer.component.menu.data.MenuItem[]{
+        // Check if project is available
+        boolean hasProject = false;
+        try {
+            hasProject = raven.yolo.manager.ProjectManager.getInstance().getCurrentProject() != null;
+        } catch (Exception e) {
+            // Project manager might not be available
+        }        // Always available menus
+        raven.drawer.component.menu.data.MenuItem[] items = new raven.drawer.component.menu.data.MenuItem[]{
                 new Item.Label("YOLO ANNOTATION"),
                 new Item("Dashboard", "dashboard.svg"),
                 new Item("Annotation Tool", "chart.svg"),
-                new Item.Label("PROJECT"),
-                new Item("Export Dataset", "page.svg"),
+                hasProject ? new Item.Label("PROJECT") : null,
+                hasProject ? new Item("Models", "forms.svg") : null,
+                hasProject ? new Item("Test Models", "ui.svg") : null,
+                hasProject ? new Item("Export Dataset", "page.svg") : null,
                 new Item.Label("ENVIRONMENT"),
                 new Item("Python Setup", "chat.svg"),
-                new Item.Label("TOOLS"),
-                new Item("Statistics", "ui.svg"),
-                new Item("Settings", "icon.svg")
+                hasProject ? new Item.Label("TOOLS") : null,
+                hasProject ? new Item("Statistics", "chart.svg") : null,
+                hasProject ? new Item("Settings", "icon.svg") : null
         };
+        
+        // Filter out null items (disabled when no project)
+        java.util.List<raven.drawer.component.menu.data.MenuItem> enabledItems = new java.util.ArrayList<>();
+        for (raven.drawer.component.menu.data.MenuItem item : items) {
+            if (item != null) {
+                enabledItems.add(item);
+            }
+        }
+        
         return new SimpleMenuOption()
                 .setBaseIconPath("raven/menu")
                 .setIconScale(0.5f)
-                .setMenus(items)
+                .setMenus(enabledItems.toArray(new raven.drawer.component.menu.data.MenuItem[0]))
                 .setMenuStyle(new SimpleMenuStyle() {
                     @Override
                     public void styleMenuPanel(JPanel panel, int[] index) {
@@ -96,32 +149,100 @@ public class SystemMenu extends BlurChild {
                     public void selected(MenuAction menuAction, int[] ints) {
                         System.out.println("Menu selected: " + java.util.Arrays.toString(ints));
                         if (ints.length == 1) {
-                            int index = ints[0];                            switch (index) {
-                                case 0: // Dashboard - don't close previous forms, allow multiple instances
-                                    FormManager.getInstance().showForm("YOLO Dashboard", new YoloDashboard(), false);
-                                    break;
-                                case 1: // Annotation Tool - close previous non-dashboard forms
-                                    FormManager.getInstance().showForm("YOLO Annotation Tool", new YoloAnnotationForm(), true);
-                                    break;
-                                case 2: // Export Dataset
-                                    showExportDatasetDialog();
-                                    break;
-                                case 3: // Python Setup
-                                    showPythonSetupDialog();
-                                    break;
-                                case 4: // Statistics - close previous non-dashboard forms
-                                    showProjectStatistics();
-                                    break;
-                                case 5: // Settings - close previous non-dashboard forms
-                                    showProjectSettings();
-                                    break;
-                            }
+                            handleMenuSelection(ints[0]);
                         }
                     }
-                })
-                ;
-
-    }    private SimpleMenu simpleMenu;
+                });
+    }
+      private void handleMenuSelection(int index) {
+        // Check if project is available for dynamic indexing
+        boolean hasProject = false;
+        try {
+            hasProject = raven.yolo.manager.ProjectManager.getInstance().getCurrentProject() != null;
+        } catch (Exception e) {
+            // Project manager might not be available
+        }
+        
+        // Dynamic menu index mapping
+        int menuIndex = 0;
+        
+        // Always available menus
+        if (index == menuIndex++) { // Dashboard
+            FormManager.getInstance().showForm("YOLO Dashboard", new YoloDashboard(), false);
+            return;
+        }
+        if (index == menuIndex++) { // Annotation Tool
+            FormManager.getInstance().showForm("YOLO Annotation Tool", new YoloAnnotationForm(), true);
+            return;
+        }
+        
+        // Project-dependent menus
+        if (hasProject) {            if (index == menuIndex++) { // Models
+                if (!hasProject) {
+                    JOptionPane.showMessageDialog(this, 
+                        "Please select or create a project first before accessing Models.", 
+                        "No Project", JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+                // Ensure Python environment is set up for the current project
+                try {
+                    raven.yolo.model.YoloProject currentProject = raven.yolo.manager.ProjectManager.getInstance().getCurrentProject();
+                    String workspacePath = raven.yolo.manager.WorkspaceManager.getInstance().getCurrentWorkspacePath();
+                    raven.yolo.training.PythonSetupManager.getInstance().setCurrentProject(currentProject.getId(), workspacePath);
+                } catch (Exception e) {
+                    // Log error but continue
+                    e.printStackTrace();
+                }
+                FormManager.getInstance().showForm("Models", new raven.yolo.forms.ModelsPage(), true);
+                return;
+            }if (index == menuIndex++) { // Test Models
+                if (!hasProject) {
+                    JOptionPane.showMessageDialog(this, 
+                        "Please select or create a project first before testing models.", 
+                        "No Project", JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+                // Get current project info and create ModelTestingForm with project context
+                try {
+                    raven.yolo.model.YoloProject currentProject = raven.yolo.manager.ProjectManager.getInstance().getCurrentProject();
+                    String workspacePath = raven.yolo.manager.WorkspaceManager.getInstance().getCurrentWorkspacePath();
+                    String projectPath = workspacePath + File.separator + currentProject.getId();
+                    
+                    // Ensure Python environment is set up for the current project
+                    raven.yolo.training.PythonSetupManager.getInstance().setCurrentProject(currentProject.getId(), workspacePath);
+                    
+                    FormManager.getInstance().showForm("Test Models", new raven.yolo.forms.ModelTestingForm(null, projectPath), true);
+                } catch (Exception e) {
+                    JOptionPane.showMessageDialog(this, 
+                        "Error accessing project information: " + e.getMessage(), 
+                        "Error", JOptionPane.ERROR_MESSAGE);
+                }
+                return;
+            }
+            if (index == menuIndex++) { // Export Dataset
+                showExportDatasetDialog();
+                return;
+            }
+        }
+        
+        // Environment section
+        if (index == menuIndex++) { // Python Setup
+            showPythonSetupDialog();
+            return;
+        }
+        
+        // Tools section (only if project)
+        if (hasProject) {
+            if (index == menuIndex++) { // Statistics
+                showProjectStatistics();
+                return;
+            }
+            if (index == menuIndex++) { // Settings
+                showProjectSettings();
+                return;
+            }
+        }
+    }
     
     private void showExportDatasetDialog() {
         // Check if there's a current project

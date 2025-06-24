@@ -14,6 +14,7 @@ import raven.yolo.forms.TrainingConfigDialog;
 import raven.yolo.forms.ExportDatasetDialog;
 import raven.yolo.forms.PythonSetupDialog;
 import raven.yolo.forms.ProjectCreationDialog;
+import raven.yolo.forms.CreateProjectFromLabelsDialog;
 import raven.yolo.training.TrainingManager;
 import raven.yolo.training.PythonSetupManager;
 
@@ -34,10 +35,10 @@ public class YoloAnnotationForm extends JPanel {
     private JMenuBar menuBar;
     private JLabel statusLabel;
     private JLabel projectInfoLabel;
-    private JPanel trainingPanel;
-    private JLabel trainingStatusLabel;
+    private JPanel trainingPanel;    private JLabel trainingStatusLabel;
     private JButton trainButton;
     private JButton pythonSetupButton;
+    private JButton newProjectFromLabelsButton;
     
     public YoloAnnotationForm() {
         initComponents();
@@ -66,10 +67,9 @@ public class YoloAnnotationForm extends JPanel {
         statusLabel = new JLabel("Ready");
         projectInfoLabel = new JLabel("No project loaded");
         trainingStatusLabel = new JLabel("Python environment: Checking...");
-        
-        // Set background
-        setBackground(Color.DARK_GRAY);
-        imageViewer.setBackground(Color.DARK_GRAY);
+          // Set transparent background to harmonize with the app's blur style
+        setOpaque(false);
+        imageViewer.setOpaque(false);
         
         // Check Python environment status
         updatePythonEnvironmentStatus();
@@ -246,12 +246,11 @@ public class YoloAnnotationForm extends JPanel {
         
         return panel;
     }
-    
-    /**
+      /**
      * Create right panel with training and tools
      */
     private JPanel createRightPanel() {
-        JPanel rightPanel = new JPanel(new MigLayout("fill,insets 2", "[fill]", "[fill][grow 0]"));
+        JPanel rightPanel = new JPanel(new MigLayout("fill,insets 2", "[fill]", "[fill]"));
         
         // Training panel in scroll pane
         JScrollPane trainingScrollPane = new JScrollPane(trainingPanel);
@@ -259,28 +258,12 @@ public class YoloAnnotationForm extends JPanel {
         trainingScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
         trainingScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         
-        // Quick stats panel
-        JPanel statsPanel = createQuickStatsPanel();
-        
         rightPanel.add(trainingScrollPane, "");
-        rightPanel.add(statsPanel, "wrap, h 80!");
         
         return rightPanel;
     }
-    
-    /**
-     * Create quick statistics panel
-     */
-    private JPanel createQuickStatsPanel() {
-        JPanel panel = new JPanel(new MigLayout("fill,insets 5", "[fill]", "[]"));
-        panel.setBorder(BorderFactory.createTitledBorder("Quick Stats"));
-        
-        JLabel statsLabel = new JLabel("<html>Images: 0<br>Annotations: 0<br>Classes: 0</html>");
-        panel.add(statsLabel, "");
-        
-        return panel;    }
-    
-    private void setupEventHandlers() {
+  
+      private void setupEventHandlers() {
         // Connect image selection to viewer
         imageListPanel.setImageSelectionListener(image -> {
             imageViewer.loadImage(image);
@@ -288,6 +271,7 @@ public class YoloAnnotationForm extends JPanel {
         });
           // Connect class selection to viewer
         classPanel.setClassSelectionListener((classId, className) -> {
+            System.out.println("YoloAnnotationForm: Class selected - ID: " + classId + ", Name: " + className);
             imageViewer.setCurrentClass(classId, className);
         });
         
@@ -296,8 +280,14 @@ public class YoloAnnotationForm extends JPanel {
             if (classPanel.getSelectedClassIndex() >= 0) {
                 String selectedClass = classPanel.getSelectedClassName();
                 if (selectedClass != null) {
+                    System.out.println("YoloAnnotationForm: Setting initial class - ID: " + classPanel.getSelectedClassIndex() + ", Name: " + selectedClass);
                     imageViewer.setCurrentClass(classPanel.getSelectedClassIndex(), selectedClass);
                 }
+            } else {
+                // Try to select first class if available
+                SwingUtilities.invokeLater(() -> {
+                    classPanel.selectFirstClassIfAvailable();
+                });
             }
         });
     }
@@ -482,15 +472,27 @@ public class YoloAnnotationForm extends JPanel {
         projectTitle.putClientProperty(FlatClientProperties.STYLE, "font:bold +2");
         panel.add(projectTitle, "wrap");
         
-        JLabel projectStats = new JLabel("<html>No project loaded</html>");
-        projectStats.setName("projectStats");
+        JLabel projectStats = new JLabel("<html>No project loaded</html>");        projectStats.setName("projectStats");
         panel.add(projectStats, "wrap 10");
         
+        // Export & Project Creation Section
+        JLabel exportTitle = new JLabel("Export & Projects");
+        exportTitle.putClientProperty(FlatClientProperties.STYLE, "font:bold +2");
+        panel.add(exportTitle, "wrap");
+          
         // Export Dataset
         JButton exportButton = new JButton("Export Dataset");
         exportButton.putClientProperty(FlatClientProperties.STYLE, "arc:5;background:$Component.accentColor");
         exportButton.addActionListener(e -> exportDataset());
         panel.add(exportButton, "wrap 5");
+        
+        // New Project from Labels
+        newProjectFromLabelsButton = new JButton("New Project from Labels");
+        newProjectFromLabelsButton.putClientProperty(FlatClientProperties.STYLE, "arc:5;background:$Component.warningColor");
+        newProjectFromLabelsButton.addActionListener(e -> createProjectFromLabels());
+        panel.add(newProjectFromLabelsButton, "wrap 15");
+        
+        System.out.println("DEBUG: New Project from Labels button created in Export section");
         
         // Training
         JLabel trainingTitle = new JLabel("Model Training");
@@ -523,8 +525,7 @@ public class YoloAnnotationForm extends JPanel {
     
     private void updateTrainingPanel() {
         YoloProject project = ProjectManager.getInstance().getCurrentProject();
-        
-        // Find project stats label
+          // Find project stats label
         Component[] components = trainingPanel.getComponents();
         JLabel projectStats = null;
         for (Component comp : components) {
@@ -534,38 +535,29 @@ public class YoloAnnotationForm extends JPanel {
             }
         }
         
+        // Update project stats
         if (projectStats != null) {
             if (project != null) {
-                int totalImages = project.getImages().size();
-                int annotatedImages = (int) project.getImages().stream()
-                    .mapToLong(img -> img.getAnnotations().size())
-                    .filter(count -> count > 0)
+                int imageCount = project.getImages().size();
+                int annotatedCount = (int) project.getImages().stream()
+                    .filter(img -> !img.getAnnotations().isEmpty())
                     .count();
-                int totalAnnotations = project.getImages().stream()
-                    .mapToInt(img -> img.getAnnotations().size())
-                    .sum();
-                
-                String stats = String.format(
-                    "<html><b>%s</b><br>" +
-                    "Images: %d<br>" +
-                    "Annotated: %d<br>" +
-                    "Total annotations: %d<br>" +
-                    "Classes: %d</html>",
-                    project.getName(),
-                    totalImages,
-                    annotatedImages,
-                    totalAnnotations,
-                    project.getClasses().size()
-                );
-                projectStats.setText(stats);
+                projectStats.setText(String.format(
+                    "<html><b>Images:</b> %d<br><b>Annotated:</b> %d</html>", 
+                    imageCount, annotatedCount));
             } else {
                 projectStats.setText("<html>No project loaded</html>");
             }
-        }
-        
-        // Enable/disable buttons based on project availability
+        }        // Enable/disable buttons based on project availability
         boolean hasProject = project != null;
         trainButton.setEnabled(hasProject);
+        
+        // Enable new project from labels button only if project has annotated images
+        if (newProjectFromLabelsButton != null) {
+            boolean hasAnnotatedImages = hasProject && project.getImages().stream()
+                .anyMatch(img -> !img.getAnnotations().isEmpty());
+            newProjectFromLabelsButton.setEnabled(hasAnnotatedImages);
+        }
     }
       private void updatePythonEnvironmentStatus() {
         SwingUtilities.invokeLater(() -> {
@@ -735,12 +727,65 @@ public class YoloAnnotationForm extends JPanel {
         ProjectManagerDialog dialog = new ProjectManagerDialog((Frame) SwingUtilities.getWindowAncestor(this));
         dialog.setVisible(true);
         
-        if (dialog.isConfirmed()) {
-            YoloProject project = dialog.getSelectedProject();
+        if (dialog.isConfirmed()) {            YoloProject project = dialog.getSelectedProject();
             if (project != null) {
                 ProjectManager.getInstance().setCurrentProject(project);
                 updateStatus("Opened project: " + project.getName());
             }
+        }
+    }
+    
+    /**
+     * Create a new project from cropped labeled objects
+     */
+    private void createProjectFromLabels() {
+        YoloProject currentProject = ProjectManager.getInstance().getCurrentProject();
+        if (currentProject == null) {
+            JOptionPane.showMessageDialog(this, 
+                "No project is currently loaded.", 
+                "No Project", 
+                JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        
+        // Count total labeled objects
+        int totalLabeledObjects = 0;
+        for (YoloImage image : currentProject.getImages()) {
+            totalLabeledObjects += image.getAnnotations().size();
+        }
+        
+        if (totalLabeledObjects == 0) {
+            JOptionPane.showMessageDialog(this, 
+                "No labeled objects found in the current project.\nPlease add some annotations first.", 
+                "No Labels", 
+                JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        
+        // Show confirmation dialog with info
+        int result = JOptionPane.showConfirmDialog(this,
+            String.format(
+                "This will create a new project with %d cropped objects from the current project.\n\n" +
+                "Each labeled bounding box will be cropped and saved as a separate image.\n" +
+                "The new project will contain these cropped images as the dataset.\n\n" +
+                "Do you want to continue?", 
+                totalLabeledObjects),
+            "Create Project from Labels",
+            JOptionPane.YES_NO_OPTION,
+            JOptionPane.QUESTION_MESSAGE);
+            
+        if (result != JOptionPane.YES_OPTION) {
+            return;
+        }
+        
+        // Show dialog to create new project from labels
+        CreateProjectFromLabelsDialog dialog = new CreateProjectFromLabelsDialog(
+            (Frame) SwingUtilities.getWindowAncestor(this), 
+            currentProject);
+        dialog.setVisible(true);
+        
+        if (dialog.isConfirmed()) {
+            updateStatus("New project created from labels successfully!");
         }
     }
 }

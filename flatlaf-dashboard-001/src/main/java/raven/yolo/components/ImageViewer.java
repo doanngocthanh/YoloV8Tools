@@ -255,8 +255,7 @@ public class ImageViewer extends JPanel {
         if (startPoint != null && endPoint != null && image != null) {
             updateCurrentRect();
             if (currentRect.width > 5 && currentRect.height > 5) { // Minimum size
-                
-                // Check if project exists and has classes
+                  // Check if project exists and has classes
                 try {
                     YoloProject currentProject = raven.yolo.manager.ProjectManager.getInstance().getCurrentProject();
                     if (currentProject == null) {
@@ -266,6 +265,9 @@ public class ImageViewer extends JPanel {
                             JOptionPane.WARNING_MESSAGE);
                         return;
                     }
+                    
+                    System.out.println("DEBUG: Current project: " + currentProject.getName() + 
+                                     ", Classes: " + currentProject.getClasses().size());
                     
                     if (currentProject.getClasses().isEmpty()) {
                         JOptionPane.showMessageDialog(this, 
@@ -283,6 +285,9 @@ public class ImageViewer extends JPanel {
                 }
                 
                 // Check if any class is selected
+                System.out.println("DEBUG: Creating annotation - currentClassId=" + currentClassId + 
+                                 ", currentClassName=" + currentClassName);
+                                 
                 if (currentClassId < 0 || currentClassName == null) {
                     JOptionPane.showMessageDialog(this, 
                         "Please select a class first!\n\nGo to the Class panel and select a class before creating annotations.", 
@@ -687,29 +692,45 @@ public class ImageViewer extends JPanel {
     
     /**
      * Load a YOLO image for annotation
-     */
-    public void loadImage(YoloImage yoloImage) {
-        try {
-            this.currentYoloImage = yoloImage;
-            if (yoloImage != null) {
-                // Load the actual image file
-                java.io.File imageFile = new java.io.File(yoloImage.getPath());
-                this.image = javax.imageio.ImageIO.read(imageFile);
+     */    public void loadImage(YoloImage yoloImage) {
+        this.currentYoloImage = yoloImage;
+        if (yoloImage != null) {
+            // Clear current image and annotations immediately
+            this.image = null;
+            this.boundingBoxes.clear();
+            repaint();
+            
+            // Load image in background thread
+            SwingWorker<BufferedImage, Void> worker = new SwingWorker<BufferedImage, Void>() {
+                @Override
+                protected BufferedImage doInBackground() throws Exception {
+                    java.io.File imageFile = new java.io.File(yoloImage.getPath());
+                    return javax.imageio.ImageIO.read(imageFile);
+                }
                 
-                // Load existing annotations
-                loadAnnotationsFromYoloImage();
-                
-                repaint();
-            } else {
-                this.image = null;
-                this.boundingBoxes.clear();
-                repaint();
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-            javax.swing.JOptionPane.showMessageDialog(this, 
-                "Error loading image: " + e.getMessage(), 
-                "Error", javax.swing.JOptionPane.ERROR_MESSAGE);
+                @Override
+                protected void done() {
+                    try {
+                        BufferedImage loadedImage = get();
+                        if (loadedImage != null) {
+                            ImageViewer.this.image = loadedImage;
+                            // Load existing annotations
+                            loadAnnotationsFromYoloImage();
+                            repaint();
+                        }
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                        javax.swing.JOptionPane.showMessageDialog(ImageViewer.this, 
+                            "Error loading image: " + e.getMessage(), 
+                            "Error", javax.swing.JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+            };
+            worker.execute();
+        } else {
+            this.image = null;
+            this.boundingBoxes.clear();
+            repaint();
         }
     }
     
@@ -793,14 +814,26 @@ public class ImageViewer extends JPanel {
      */
     public YoloImage getCurrentYoloImage() {
         return currentYoloImage;
-    }
-      /**
+    }    /**
      * Set current class for new annotations
      */
     public void setCurrentClass(int classId, String className) {
         this.currentClassId = classId;
         this.currentClassName = className;
         System.out.println("ImageViewer: Set current class - ID: " + classId + ", Name: " + className);
+        
+        // Validate class selection
+        try {
+            YoloProject project = raven.yolo.manager.ProjectManager.getInstance().getCurrentProject();
+            if (project != null && classId >= 0 && classId < project.getClasses().size()) {
+                String projectClassName = project.getClasses().get(classId);
+                if (!projectClassName.equals(className)) {
+                    System.out.println("WARNING: Class name mismatch! Expected: " + projectClassName + ", Got: " + className);
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Error validating class: " + e.getMessage());
+        }
     }
     
     /**

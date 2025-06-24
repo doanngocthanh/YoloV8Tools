@@ -138,8 +138,7 @@ public class ClassPanel extends JPanel {
                 System.out.println("ClassPanel: No selection listener set!");
             }
         }
-    }
-      private void loadProjectClasses() {
+    }      private void loadProjectClasses() {
         classListModel.clear();
         YoloProject project = ProjectManager.getInstance().getCurrentProject();
         if (project != null) {
@@ -147,13 +146,12 @@ public class ClassPanel extends JPanel {
             for (String className : classes) {
                 classListModel.addElement(className);
             }
-            
-            // Select first class by default
+              // Auto-select first class if available
             if (!classes.isEmpty()) {
-                classList.setSelectedIndex(0);
-                // Force update selection to notify listener
-                SwingUtilities.invokeLater(this::updateSelection);
-            }
+                SwingUtilities.invokeLater(() -> {
+                    classList.setSelectedIndex(0);
+                    updateSelection();
+                });            }
         }
     }
       private void onProjectChanged(YoloProject project) {
@@ -181,6 +179,14 @@ public class ClassPanel extends JPanel {
     
     public String getSelectedClassName() {
         return classList.getSelectedValue();
+    }
+    
+    public void selectFirstClassIfAvailable() {
+        if (classListModel.getSize() > 0) {
+            classList.setSelectedIndex(0);
+            updateSelection();
+            System.out.println("ClassPanel: Selected first class automatically");
+        }
     }
     
     // Custom cell renderer for class list

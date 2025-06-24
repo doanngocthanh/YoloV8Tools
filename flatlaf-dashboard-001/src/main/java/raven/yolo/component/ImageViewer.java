@@ -77,26 +77,45 @@ public class ImageViewer extends JPanel {
             }
         });
     }
-    
-    public void loadImage(YoloImage yoloImage) {
-        try {
-            this.currentYoloImage = yoloImage;
-            File imageFile = new File(yoloImage.getPath());
-            this.originalImage = ImageIO.read(imageFile);
-            
-            // Update image dimensions if not set
-            if (yoloImage.getWidth() == 0 || yoloImage.getHeight() == 0) {
-                yoloImage.setWidth(originalImage.getWidth());
-                yoloImage.setHeight(originalImage.getHeight());
-            }
-            
-            calculateScale();
-            repaint();
-        } catch (IOException e) {
-            e.printStackTrace();
-            JOptionPane.showMessageDialog(this, "Error loading image: " + e.getMessage(), 
-                                        "Error", JOptionPane.ERROR_MESSAGE);
-        }
+      public void loadImage(YoloImage yoloImage) {
+        // Clear current image immediately
+        this.currentYoloImage = yoloImage;
+        this.originalImage = null;
+        this.scaledImage = null;
+        repaint();
+        
+        // Load image in background thread
+        SwingUtilities.invokeLater(() -> {
+            SwingWorker<BufferedImage, Void> worker = new SwingWorker<BufferedImage, Void>() {
+                @Override
+                protected BufferedImage doInBackground() throws Exception {
+                    File imageFile = new File(yoloImage.getPath());
+                    return ImageIO.read(imageFile);
+                }
+                
+                @Override
+                protected void done() {
+                    try {
+                        BufferedImage loadedImage = get();
+                        if (loadedImage != null) {
+                            ImageViewer.this.originalImage = loadedImage;
+                            
+                            // Update image dimensions if not set
+                            if (yoloImage.getWidth() == 0 || yoloImage.getHeight() == 0) {
+                                yoloImage.setWidth(loadedImage.getWidth());
+                                yoloImage.setHeight(loadedImage.getHeight());
+                            }
+                            
+                            calculateScale();
+                            repaint();
+                        }
+                    } catch (Exception e) {
+                        System.err.println("Error loading image: " + e.getMessage());
+                        e.printStackTrace();
+                    }
+                }
+            };
+            worker.execute();        });
     }
     
     private void calculateScale() {

@@ -1,0 +1,15 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build and Run YOLO Application",
+			"type": "shell",
+			"command": "mvn clean compile exec:java -Dexec.mainClass=\"raven.application.Application\"",
+			"group": "build",
+			"isBackground": false,
+			"problemMatcher": [
+				"$maven-compiler-java"
+			]
+		}
+	]
+}
